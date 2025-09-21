@@ -1,103 +1,245 @@
-import Image from "next/image";
+"use client";
 
-export default function Home() {
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
+import {
+  LOGIN_ENDPOINT,
+  REMEMBER_EMAIL_KEY,
+  TOKEN_STORAGE_KEY,
+} from "../lib/auth";
+
+type AuthStatus = "idle" | "loading" | "success" | "error";
+
+type LoginResponse = {
+  token: string;
+};
+
+type LoginPayload = {
+  email: string;
+  password: string;
+};
+
+export default function LoginPage() {
+  const router = useRouter();
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [rememberMe, setRememberMe] = useState(true);
+  const [status, setStatus] = useState<AuthStatus>("idle");
+  const [message, setMessage] = useState("");
+  const emailInputRef = useRef<HTMLInputElement>(null);
+  const passwordInputRef = useRef<HTMLInputElement>(null);
+
+  const [year, setYear] = useState<number>();
+  useEffect(() => {
+    setYear(new Date().getFullYear());
+  }, []);
+
+  useEffect(() => {
+    const storedEmail = window.localStorage.getItem(REMEMBER_EMAIL_KEY);
+    if (storedEmail) {
+      setEmail(storedEmail);
+      setRememberMe(true);
+      if (emailInputRef.current) {
+        emailInputRef.current.value = storedEmail;
+      }
+    }
+
+    // Capture browser auto-fill after hydration so controlled state stays in sync.
+    requestAnimationFrame(() => {
+      if (!storedEmail && emailInputRef.current?.value) {
+        setEmail(emailInputRef.current.value);
+      }
+      if (passwordInputRef.current?.value) {
+        setPassword(passwordInputRef.current.value);
+      }
+    });
+  }, []);
+
+  const statusStyles = useMemo(() => {
+    switch (status) {
+      case "success":
+        return "bg-green-100 text-green-700 border border-green-200";
+      case "error":
+        return "bg-red-100 text-red-600 border border-red-200";
+      case "loading":
+        return "bg-secondary-gradient text-white";
+      default:
+        return "bg-transparent";
+    }
+  }, [status]);
+
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setStatus("loading");
+    setMessage("Authenticating with Mindsphere...");
+
+    const payload: LoginPayload = { email, password };
+
+    try {
+      const response = await fetch(LOGIN_ENDPOINT, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+
+      if (!response.ok) {
+        let errorMessage = "Unable to sign in. Please try again.";
+        try {
+          const errorPayload = (await response.json()) as { message?: string };
+          if (errorPayload.message) {
+            errorMessage = errorPayload.message;
+          }
+        } catch {
+          // ignore JSON parse errors and keep default message
+        }
+        throw new Error(errorMessage);
+      }
+
+      const data = (await response.json()) as LoginResponse;
+
+      if (!data.token) {
+        throw new Error(
+          "Unexpected response from server. Please contact support."
+        );
+      }
+
+      window.localStorage.setItem(TOKEN_STORAGE_KEY, data.token);
+
+      if (rememberMe) {
+        window.localStorage.setItem(REMEMBER_EMAIL_KEY, email);
+      } else {
+        window.localStorage.removeItem(REMEMBER_EMAIL_KEY);
+      }
+
+      setStatus("success");
+      setMessage("Login successful! Redirecting to dashboard...");
+
+      setTimeout(() => {
+        router.push("/dashboard");
+      }, 800);
+    } catch (error) {
+      const fallback = error instanceof Error ? error.message : "Login failed";
+      setStatus("error");
+      setMessage(fallback);
+    }
+  }
+
+  const isLoading = status === "loading";
+
   return (
-    <div className="font-sans grid grid-rows-[20px_1fr_20px] items-center justify-items-center min-h-screen p-8 pb-20 gap-16 sm:p-20">
-      <main className="flex flex-col gap-[32px] row-start-2 items-center sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={180}
-          height={38}
-          priority
-        />
-        <ol className="font-mono list-inside list-decimal text-sm/6 text-center sm:text-left">
-          <li className="mb-2 tracking-[-.01em]">
-            Get started by editing{" "}
-            <code className="bg-black/[.05] dark:bg-white/[.06] font-mono font-semibold px-1 py-0.5 rounded">
-              src/app/page.tsx
-            </code>
-            .
-          </li>
-          <li className="tracking-[-.01em]">
-            Save and see your changes instantly.
-          </li>
-        </ol>
+    <div className="relative min-h-screen overflow-hidden">
+      <div className="absolute inset-0 -z-10">
+        <div className="absolute inset-0 opacity-90 bg-primary-gradient" />
+        <div className="absolute -top-48 -right-32 h-96 w-96 rounded-full bg-secondary-gradient blur-3xl opacity-60" />
+        <div className="absolute -bottom-48 -left-32 h-96 w-96 rounded-full bg-accent-gradient blur-3xl opacity-40" />
+      </div>
 
-        <div className="flex gap-4 items-center flex-col sm:flex-row">
-          <a
-            className="rounded-full border border-solid border-transparent transition-colors flex items-center justify-center bg-foreground text-background gap-2 hover:bg-[#383838] dark:hover:bg-[#ccc] font-medium text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 sm:w-auto"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
+      <div className="relative z-10 flex min-h-screen flex-col items-center justify-center px-6 py-12 sm:px-12">
+        <form
+          onSubmit={handleSubmit}
+          className="card-glass w-full max-w-lg space-y-8 border border-white/40 px-8 py-10 shadow-xl sm:px-12"
+        >
+          <div className="flex flex-col items-center text-center">
+            <span className="rounded-full bg-indigo-100 px-4 py-1 text-xs font-medium uppercase tracking-[0.35em] text-indigo-800 shadow-sm">
+              Platform
+            </span>
+            <h1 className="mt-4 text-3xl font-bold text-indigo-900">
+              Mindsphere
+            </h1>
+          </div>
+          <div className="space-y-6">
+            <div className="space-y-2">
+              <label
+                className="block text-sm font-medium text-slate-600"
+                htmlFor="email"
+              >
+                Email address
+              </label>
+              <input
+                ref={emailInputRef}
+                suppressHydrationWarning
+                id="email"
+                name="email"
+                type="email"
+                autoComplete="email"
+                required
+                value={email}
+                onChange={(event) => setEmail(event.target.value)}
+                className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-base text-slate-900 shadow-sm outline-none transition focus:border-indigo-400 focus:ring focus:ring-indigo-100"
+                placeholder="admin@example.com"
+              />
+            </div>
+
+            <div className="space-y-2">
+              <label
+                className="block text-sm font-medium text-slate-600"
+                htmlFor="password"
+              >
+                Password
+              </label>
+              <input
+                ref={passwordInputRef}
+                suppressHydrationWarning
+                id="password"
+                name="password"
+                type="password"
+                autoComplete="current-password"
+                required
+                value={password}
+                onChange={(event) => setPassword(event.target.value)}
+                className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-base text-slate-900 shadow-sm outline-none transition focus:border-indigo-400 focus:ring focus:ring-indigo-100"
+                placeholder="********"
+              />
+            </div>
+          </div>
+
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+            <label className="flex items-center gap-3 text-sm text-slate-600">
+              <input
+                type="checkbox"
+                checked={rememberMe}
+                onChange={(event) => setRememberMe(event.target.checked)}
+                className="h-4 w-4 rounded border-slate-300 text-indigo-500 focus:ring-indigo-400"
+              />
+              Remember me
+            </label>
+            <a
+              className="text-sm font-medium text-indigo-500 transition hover:text-indigo-600"
+              href="#"
+            >
+              Forgot password?
+            </a>
+          </div>
+
+          <button
+            suppressHydrationWarning
+            type="submit"
+            disabled={isLoading}
+            className={`relative flex w-full items-center justify-center overflow-hidden rounded-xl bg-primary-gradient px-5 py-3 text-base font-semibold text-white transition focus:outline-none focus:ring-4 focus:ring-indigo-200 disabled:cursor-not-allowed disabled:opacity-75`}
           >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={20}
-              height={20}
-            />
-            Deploy now
-          </a>
-          <a
-            className="rounded-full border border-solid border-black/[.08] dark:border-white/[.145] transition-colors flex items-center justify-center hover:bg-[#f2f2f2] dark:hover:bg-[#1a1a1a] hover:border-transparent font-medium text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 w-full sm:w-auto md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Read our docs
-          </a>
-        </div>
-      </main>
-      <footer className="row-start-3 flex gap-[24px] flex-wrap items-center justify-center">
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/file.svg"
-            alt="File icon"
-            width={16}
-            height={16}
-          />
-          Learn
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/window.svg"
-            alt="Window icon"
-            width={16}
-            height={16}
-          />
-          Examples
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/globe.svg"
-            alt="Globe icon"
-            width={16}
-            height={16}
-          />
-          Go to nextjs.org →
-        </a>
-      </footer>
+            {isLoading ? (
+              <span className="flex items-center gap-2">
+                <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/40 border-t-white" />
+                Signing in...
+              </span>
+            ) : (
+              "Sign in"
+            )}
+          </button>
+
+          {status !== "idle" && (
+            <div
+              className={`rounded-xl px-4 py-3 text-sm transition ${statusStyles}`}
+            >
+              {message}
+            </div>
+          )}
+        </form>
+
+        <footer className="mt-12 text-center text-xs text-white/80">
+          Mindsphere (c) {year} - Secure Industrial Intelligence
+        </footer>
+      </div>
     </div>
   );
 }
